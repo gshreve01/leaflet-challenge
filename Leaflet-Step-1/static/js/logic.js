@@ -1,7 +1,15 @@
+// Correct Leaflet L.Circle for use with flat map. Comment the following function to see the original impact on radius when the circle is dragged along the vertical axis.
+L.Circle.include({
+    _getLngRadius: function () {
+        return this._getLatRadius();
+    }
+});
+
 // Tile layer for the country names
 var countrymap = L.tileLayer("https://api.mapbox.com/styles/v1/{id}/tiles/{z}/{x}/{y}?access_token={accessToken}", {
     attribution: "© <a href='https://www.mapbox.com/about/maps/'>Mapbox</a> © <a href='http://www.openstreetmap.org/copyright'>OpenStreetMap</a> <strong><a href='https://www.mapbox.com/map-feedback/' target='_blank'>Improve this map</a></strong>",
     tileSize: 512,
+    zoom: 3,
     maxZoom: 18,
     zoomOffset: -1,
     id: "mapbox/streets-v11",
@@ -29,8 +37,16 @@ var overlays = {
     "Earthquakes By Mangitude": layers.MAGINITUDE,
 };
 
+// layersControl = new L.Control.Layers(baseLayers, overlays, {
+//     collapsed: false
+// });
+
 // Create a control for our layers, add our overlay layers to it
-L.control.layers(null, overlays).addTo(myMap);
+L.control.layers(null, overlays
+    , { position: 'bottomright', collapsed: false}
+    )
+    .addTo(myMap);
+
 
 // Create a legend to display information about our map
 var info = L.control({
@@ -39,12 +55,15 @@ var info = L.control({
 
 // When the layer control is added, insert a div with the class of "legend"
 info.onAdd = function () {
+    this.collapsed = false;
     console.log("adding div to legend");
     var div = L.DomUtil.create("div", "legend");
     return div;
 };
+
 // Add the info legend to the map
 info.addTo(myMap);
+
 
 // function to calculate opacity based on magnitude
 // making it global since it is difficult to pass in all circumstances
@@ -57,33 +76,82 @@ function calculateMagnitudeRanges(earthquakeData) {
     console.log("magnitudeRange", magnitudeRange);
 }
 
-var opacityBuckets = [];
 
-function initializeOpacityBuckets() {
-    var numberOfBuckets = 3;
+// setup color buckets to place based on magnitude size
+var colorBuckets = [];
+
+var colors = [
+    "yellow",
+    "purple",
+    "orange",
+    "green",
+    "red",
+    "blue"
+];
+function initializeColorBuckets() {
+    var numberOfBuckets = colors.length;
     var dif = magnitudeRange.max - magnitudeRange.min;
     var stepSize = dif / numberOfBuckets;
 
-    var iteration = 0;
-    for (var i = magnitudeRange.min; i <= magnitudeRange.max; i += stepSize) {
-        opacityBuckets.push({"magMax": i, "opacity": (20*iteration+10) / 100});
-        iteration++;
+    var minValue = magnitudeRange.min;
+    var nextValue = minValue + stepSize;
+    for (var i = 0; i < numberOfBuckets; i++) {
+        if (i != 0) {
+            minValue = nextValue + .01
+            nextValue = nextValue + stepSize;
+        }
+        colorBuckets.push({ "min": minValue.toFixed(2), "max": nextValue.toFixed(2), "color": colors[i], "radius": i * 15000 + 150000 });
     }
-    console.log("opacityBuckets", opacityBuckets);
+    console.log("colorBuckets", colorBuckets);
 }
 
-function getOpacity(feature) {
-    var calculatedOpacity = 0.1;
-    for(i=0;i < opacityBuckets.length; i++) {
-        if (feature.properties.mag <= opacityBuckets[i].magMax) {
-            calculatedOpacity = opacityBuckets[i].opacity;
+// get the color bucket based on the magnitude
+function getColorBucket(feature) {
+    for (i = 0; i < colorBuckets.length; i++) {
+        if (feature.properties.mag <= colorBuckets[i].max) {
             break;
         }
     }
-    console.log("magnitude, opacity", feature.properties.mag, calculatedOpacity);
-    return +calculatedOpacity;
+    // console.log("magnitude, color", feature.properties.mag, color);
+    return colorBuckets[i];
 }
 
+// Get the radius.  Allow for some correction based on latitude to try to keep 
+// circle sized in correct perspective
+function getRadius(feature, colorBucket) {
+    var radius = colorBucket.radius;
+
+    // Adjustment by latitude
+    var lat = Math.abs(feature.geometry.coordinates[0]);
+    var multiplier = 1800;
+    if (lat > 60) {
+        multiplier = 2000;
+    }
+    if (lat > 70) {
+        multiplier = 2100;
+    }
+    if (lat > 80) {
+        multiplier = 2250;
+    }
+    radius -= lat * multiplier;
+    if (radius < 15000) {
+        radius = 15000;
+    }
+
+    return radius;
+}
+
+function updateLegend(updatedAt) {
+    var legendTable = "<table>";
+    colorBuckets.forEach(function (color) {
+        legendTable += `<tr><td>Magnitude: ${color.min} - ${color.max}</td><td><div class="color ${color.color}"></div></td></tr>`;
+    });
+    legendTable += "</table>";
+    document.querySelector(".legend").innerHTML = [
+        `Last Updated: ${updatedAt.toDateString()}`,
+        legendTable
+    ].join("");
+}
 
 // Perform an API call to get all earthquake data for the last 7 days
 d3.json("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.geojson", function (earthquakeData) {
@@ -91,22 +159,35 @@ d3.json("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.geoj
 
     // calculate the magnitudes
     calculateMagnitudeRanges(earthquakeData);
-    initializeOpacityBuckets();
+    initializeColorBuckets();
 
     // Define a function we want to run once for each feature in the features array
     // Give each feature a popup describing the place and time of the earthquake
     function onEachFeature(feature, layer) {
         // console.log(feature);
         // Add circles to map
+        var colorBucket = getColorBucket(feature);
+        if (!colorBucket)
+            console.log("Failed feature", feature);
+        // console.log("colorBucket", colorBucket);
+        var radius = getRadius(feature, colorBucket);
+
+        // var multiplier = 25000 - (Math.abs(feature.geometry.coordinates[1]) * 600);
+        // console.log("lat, multiplier", feature.geometry.coordinates[1], multiplier)
+        // radius = ((feature.properties.mag + Math.abs(magnitudeRange.min) + .1) * multiplier) ^ 8;
         L.circle(feature.geometry.coordinates, {
-            fillOpacity: getOpacity(feature),
+            fillOpacity: .75,
             color: "none",
-            fillColor: "blue",
+            fillColor: colorBucket.color,
             // Adjust radius.  Consider minimum 
-            radius: (feature.properties.mag + magnitudeRange.min + .1) ^ 15 * 5000
+            radius: radius
         })
             .bindPopup("<h3>" + feature.properties.place +
-                "</h3><hr><p>" + new Date(feature.properties.time) + "</p>")
+                "</h3><hr><p><strong>Occurred:</strong> " + new Date(feature.properties.time).toDateString() + "</p>"
+                + "<strong>Magnitude:</strong> " + feature.properties.mag
+                //     + "<p>Radius: " + radius + "</p>"
+                //     + "<p>Latitude: " + feature.geometry.coordinates[0] + "</p>"
+            )
             .addTo(layers.MAGINITUDE);
     }
 
@@ -115,5 +196,10 @@ d3.json("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.geoj
     L.geoJSON(earthquakeData, {
         onEachFeature: onEachFeature
     });
+
+    // Call the updateLegend function, which will... update the legend!
+    var updatedAt = new Date(earthquakeData.metadata.generated);
+    console.log("updatedAt", updatedAt);
+    updateLegend(updatedAt);
 });
 

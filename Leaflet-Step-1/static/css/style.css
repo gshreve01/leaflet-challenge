@@ -8,3 +8,45 @@ body,
 html {
   height: 100%;
 }
+
+.color {
+  width: 2em;
+  height: 15px;
+}
+
+.orange {
+  background-color: orange;
+}
+
+.yellow {
+  background-color: yellow;
+}
+
+.purple {
+  background-color: purple;
+}
+
+.green {
+  background-color: green;
+}
+
+.blue {
+  background-color: blue;
+}
+
+.red {
+  background-color: red;
+}
+
+
+.legend {
+  padding: 10px;
+  font-family: Sanchez, serif;
+  font-size: 12px;
+  font-weight: bold;
+  line-height: 18px;
+  color: #555;
+  background-color: white;
+  border-radius: 5px;
+  box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
+}
