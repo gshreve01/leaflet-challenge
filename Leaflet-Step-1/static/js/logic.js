@@ -43,8 +43,8 @@ var overlays = {
 
 // Create a control for our layers, add our overlay layers to it
 L.control.layers(null, overlays
-    , { position: 'bottomright', collapsed: false}
-    )
+    , { position: 'bottomright', collapsed: false }
+)
     .addTo(myMap);
 
 
@@ -100,7 +100,7 @@ function initializeColorBuckets() {
             minValue = nextValue + .01
             nextValue = nextValue + stepSize;
         }
-        colorBuckets.push({ "min": minValue.toFixed(2), "max": nextValue.toFixed(2), "color": colors[i], "radius": i * 15000 + 150000 });
+        colorBuckets.push({ "min": minValue.toFixed(2), "max": nextValue.toFixed(2), "color": colors[i], "radius": i * 12000 + 18000 });
     }
     console.log("colorBuckets", colorBuckets);
 }
@@ -121,26 +121,33 @@ function getColorBucket(feature) {
 function getRadius(feature, colorBucket) {
     var radius = colorBucket.radius;
 
-    // Adjustment by latitude
-    var lat = Math.abs(feature.geometry.coordinates[0]);
-    var multiplier = 1800;
-    if (lat > 60) {
-        multiplier = 2000;
-    }
-    if (lat > 70) {
-        multiplier = 2100;
-    }
-    if (lat > 80) {
-        multiplier = 2250;
-    }
-    radius -= lat * multiplier;
-    if (radius < 15000) {
-        radius = 15000;
+    var adjusting = false;
+
+    if (adjusting) {
+
+
+        // Adjustment by latitude
+        var lat = Math.abs(feature.geometry.coordinates[0]);
+        var multiplier = 1800;
+        if (lat > 60) {
+            multiplier = 2000;
+        }
+        if (lat > 70) {
+            multiplier = 2100;
+        }
+        if (lat > 80) {
+            multiplier = 2250;
+        }
+        radius -= lat * multiplier;
+        if (radius < 15000) {
+            radius = 15000;
+        }
     }
 
     return radius;
 }
 
+var numFeaturesProcessed = 0;
 function updateLegend(updatedAt) {
     var legendTable = "<table>";
     colorBuckets.forEach(function (color) {
@@ -164,6 +171,7 @@ d3.json("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.geoj
     // Define a function we want to run once for each feature in the features array
     // Give each feature a popup describing the place and time of the earthquake
     function onEachFeature(feature, layer) {
+        numFeaturesProcessed++;
         // console.log(feature);
         // Add circles to map
         var colorBucket = getColorBucket(feature);
@@ -172,10 +180,7 @@ d3.json("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.geoj
         // console.log("colorBucket", colorBucket);
         var radius = getRadius(feature, colorBucket);
 
-        // var multiplier = 25000 - (Math.abs(feature.geometry.coordinates[1]) * 600);
-        // console.log("lat, multiplier", feature.geometry.coordinates[1], multiplier)
-        // radius = ((feature.properties.mag + Math.abs(magnitudeRange.min) + .1) * multiplier) ^ 8;
-        L.circle(feature.geometry.coordinates, {
+        L.circle([feature.geometry.coordinates[1], feature.geometry.coordinates[0]], {
             fillOpacity: .75,
             color: "none",
             fillColor: colorBucket.color,
@@ -201,5 +206,7 @@ d3.json("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.geoj
     var updatedAt = new Date(earthquakeData.metadata.generated);
     console.log("updatedAt", updatedAt);
     updateLegend(updatedAt);
+
+    console.log("numFeaturesProcessed", numFeaturesProcessed);
 });
 
