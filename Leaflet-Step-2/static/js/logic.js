@@ -16,10 +16,24 @@ var countrymap = L.tileLayer("https://api.mapbox.com/styles/v1/{id}/tiles/{z}/{x
     accessToken: API_KEY
 });
 
+var darkmap = L.tileLayer("https://api.mapbox.com/styles/v1/mapbox/{id}/tiles/{z}/{x}/{y}?access_token={accessToken}", {
+    attribution: "Map data &copy; <a href=\"https://www.openstreetmap.org/\">OpenStreetMap</a> contributors, <a href=\"https://creativecommons.org/licenses/by-sa/2.0/\">CC-BY-SA</a>, Imagery © <a href=\"https://www.mapbox.com/\">Mapbox</a>",
+    maxZoom: 18,
+    id: "dark-v10",
+    accessToken: API_KEY
+});
+
+// Define a baseMaps object to hold our base layers
+var baseMaps = {
+    "Country Map": countrymap,
+    "Dark Map": darkmap
+};
+
 // Initialize the LayerGroups we'll be using
 var layers = {
     MAGINITUDE: new L.LayerGroup(),
-    PLATES: new L.LayerGroup()
+    PLATES: new L.LayerGroup(),
+    CLUSTERS: new L.markerClusterGroup()
 };
 
 // Create a world map object
@@ -36,7 +50,8 @@ countrymap.addTo(myMap);
 // Create an overlays object to add to the layer control
 var overlays = {
     "Earthquakes By Mangitude": layers.MAGINITUDE,
-    "Techtonic Plates": layers.PLATES
+    "Techtonic Plates": layers.PLATES,
+    "Earthquake Clusters": layers.CLUSTERS
 };
 
 // layersControl = new L.Control.Layers(baseLayers, overlays, {
@@ -44,10 +59,9 @@ var overlays = {
 // });
 
 // Create a control for our layers, add our overlay layers to it
-L.control.layers(null, overlays
+L.control.layers(baseMaps, overlays
     , { position: 'bottomright', collapsed: false }
-)
-    .addTo(myMap);
+).addTo(myMap);
 
 
 // Create a legend to display information about our map
@@ -149,23 +163,13 @@ function getRadius(feature, colorBucket) {
     return radius;
 }
 
-var numFeaturesProcessed = 0;
-function updateLegend(updatedAt) {
-    var legendTable = "<table>";
-    colorBuckets.forEach(function (color) {
-        legendTable += `<tr><td>Magnitude: ${color.min} - ${color.max}</td><td><div class="color ${color.color}"></div></td></tr>`;
-    });
-    legendTable += "</table>";
-    document.querySelector(".legend").innerHTML = [
-        `Last Updated: ${updatedAt.toDateString()}`,
-        legendTable
-    ].join("");
+function getPopupMessage(feature) {
+    return "<h3>" + feature.properties.place +
+        "</h3><hr><p><strong>Occurred:</strong> " + new Date(feature.properties.time).toDateString() + "</p>"
+        + "<strong>Magnitude:</strong> " + feature.properties.mag;
 }
 
-// Perform an API call to get all earthquake data for the last 7 days
-d3.json("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.geojson", function (earthquakeData) {
-    console.log("earthquakeData", earthquakeData);
-
+function loadMagnitudeLayer(earthquakeData) {
     // calculate the magnitudes
     calculateMagnitudeRanges(earthquakeData);
     initializeColorBuckets();
@@ -188,12 +192,7 @@ d3.json("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.geoj
             // Adjust radius.  Consider minimum 
             radius: radius
         })
-            .bindPopup("<h3>" + feature.properties.place +
-                "</h3><hr><p><strong>Occurred:</strong> " + new Date(feature.properties.time).toDateString() + "</p>"
-                + "<strong>Magnitude:</strong> " + feature.properties.mag
-                //     + "<p>Radius: " + radius + "</p>"
-                //     + "<p>Latitude: " + feature.geometry.coordinates[0] + "</p>"
-            )
+            .bindPopup(getPopupMessage(feature))
             .addTo(layers.MAGINITUDE);
     }
 
@@ -202,6 +201,45 @@ d3.json("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.geoj
     L.geoJSON(earthquakeData, {
         onEachFeature: onEachFeature
     });
+}
+
+function loadClusterLayer(earthquakeData) {
+    // Create a new marker cluster group
+    // layers.CLUSTERS = L.markerClusterGroup();
+
+    // Define a function we want to run once for each feature in the features array
+    // Give each feature a popup describing the place and time of the earthquake
+    function onEachFeature(feature, layer) {
+        layers.CLUSTERS.addLayer(L.marker([feature.geometry.coordinates[1], feature.geometry.coordinates[0]])
+            .bindPopup(getPopupMessage(feature)));
+    }
+
+    // Create a GeoJSON layer containing the features array on the earthquakeData object
+    // Run the onEachFeature function once for each piece of data in the array 
+    L.geoJSON(earthquakeData, {
+        onEachFeature: onEachFeature
+    });
+}
+
+var numFeaturesProcessed = 0;
+function updateLegend(updatedAt) {
+    var legendTable = "<table>";
+    colorBuckets.forEach(function (color) {
+        legendTable += `<tr><td>Magnitude: ${color.min} - ${color.max}</td><td><div class="color ${color.color}"></div></td></tr>`;
+    });
+    legendTable += "</table>";
+    document.querySelector(".legend").innerHTML = [
+        `Last Updated: ${updatedAt.toDateString()}`,
+        legendTable
+    ].join("");
+}
+
+// Perform an API call to get all earthquake data for the last 7 days
+d3.json("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.geojson", function (earthquakeData) {
+    console.log("earthquakeData", earthquakeData);
+
+    loadMagnitudeLayer(earthquakeData);
+    loadClusterLayer(earthquakeData);
 
     // Call the updateLegend function, which will... update the legend!
     var updatedAt = new Date(earthquakeData.metadata.generated);
